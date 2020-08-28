@@ -1,0 +1,470 @@
+"""
+Created on Thu Aug 27 02:03:14 2020
+
+@author: neeraj
+"""
+
+def grid_plots(features):
+    """
+
+plotting distributions in grid spaces
+
+    """
+    warnings.filterwarnings("ignore")    
+    fig = plt.figure(figsize = (25,20))
+    fig.suptitle('Freq Distribution of Independent variables', fontsize=16)
+    gs = fig.add_gridspec(5,3)
+    for i, categorical_feature in enumerate(DF[features]):
+        l=i//3
+        k=i%3
+        ax = fig.add_subplot(gs[l, k])
+        dfm=eda(categorical_feature,DF,winsorized_x=True,toplot=False)
+        dfm.plot.barh(x='x',y='wgt',ax=ax, legend=None).set_title(categorical_feature)
+        #ax.set(xlim =(0, 1.0))
+        ax.yaxis.set_label_text("")
+    return(fig)
+        
+def nicenumber(x, round):
+    """
+
+nicenumber
+
+    """
+    exp = np.floor(np.log10(x))
+    f   = x / 10**exp
+
+    if round:
+        if f < 1.5:
+            nf = 1.
+        elif f < 3.:
+            nf = 2.
+        elif f < 7.:
+            nf = 5.
+        else:
+            nf = 10.
+    else:
+        if f <= 1.:
+            nf = 1.
+        elif f <= 2.:
+            nf = 2.
+        elif f <= 5.:
+            nf = 5.
+        else:
+            nf = 10.
+
+    return nf * 10.**exp
+
+def pretty(s, n):
+    """
+
+pretty cuts
+
+    """
+    
+    range = nicenumber(max(s) - min(s), False)
+    d     = nicenumber(range / (n-1), True)
+    miny  = np.floor(min(s)  / d) * d
+    maxy  = np.ceil (max(s) / d) * d
+    return np.arange(miny, maxy+0.5*d, d)
+
+def weighted_stats(grp):
+    """
+
+weighted summarizing
+
+    """
+    tmp = grp[['y','w']]
+    weights = tmp['w']
+    values = tmp.drop('w', axis=1)
+    #wgtvalues=weights*values
+    obs=np.ones(tmp.shape[0])
+    average = np.ma.average(values, weights=weights, axis=0)
+    variance = np.dot(weights, (values - average) ** 2) / weights.sum()
+    std = np.sqrt(variance)
+    y= values.mean()
+    wgt=weights.sum()
+    sm=average*wgt
+    sm1=(1-average)*wgt
+    n=obs.sum()
+    
+    return pd.DataFrame({'sd':std,'y':average,'wgt':wgt,'n':n , 'sum_event' : sm,'sum_nonevent' : sm1}, index=values.columns)
+
+
+def eda1(x_name
+        ,data
+        ,y_name=""
+        ,nbins=20
+        ,equal_bins=True
+        ,weight_name="NoOfTransactions"
+        ,f1="All"
+        ,f2="Full"
+        ,plotmode="detailed"
+        ,toplot=True
+        ,winsorized_x=False
+        ,floor_pct=.005
+        ,cap_pct=.995):
+    """
+
+this function is used to create cross bar showing relationship of y v/s x through mean(white bar) and std/ln(obs) bands
+Moreover , the cross bars are filled with shades as per the weights. User has an option to show facet grids through maximum
+two different categorical variables
+
+    """
+
+
+   
+    df = pd.DataFrame(columns=['x','y','w',f1,f2], index=range(DF.shape[0]))
+    df['x'] = data[x_name].round(2) if data[x_name].dtype=='float' else data[x_name]
+    
+    if(winsorized_x) & (data[x_name].dtype in ['int','float']):
+        percentiles=df['x'].quantile([floor_pct,cap_pct]).values
+        df['x'][df['x'] <= percentiles[0]] = percentiles[0]
+        df['x'][df['x'] >= percentiles[1]] = percentiles[1]
+    
+    if y_name=="":
+        df['y']=1
+        equal_bins=False
+    else:
+        df['y'] = data[y_name].round(2) if data[y_name].dtype=='float' else data[y_name]
+    
+
+    df['w']=1 if weight_name=="NoOfTransactions" else data[weight_name].round(2)
+    df['w']=df['w']/df['w'].sum()
+    
+    if f1=="All":
+        df[f1]="All"
+    else:
+        df[f1] = data[f1].round(2) if data[f1].dtype=='float' else data[f1]
+        
+    if f2=="Full":
+        df[f2]="All"
+    else:
+        df[f2] = data[f2].round(2) if data[f2].dtype=='float' else data[f2]
+        
+    x_lab=x_name
+    y_lab= "Average "+y_name if weight_name=="NoOfTransactions" else "Weighted Average "+y_name
+    
+    if df['x'].nunique()>20:
+        if equal_bins: 
+            bks=pd.qcut(df['x'],nbins,retbins=True,labels=False,duplicates='drop')
+            df['bin']=bks[0]
+        else:
+            bks=pd.cut(df['x'],pretty(df['x'],nbins),labels=False, retbins=True,right=False, duplicates='drop')
+            df['bin']=bks[0]
+    else:
+        df['bin']=df['x']
+        
+    if df[f1].nunique()>20:
+        bks_f1=pd.qcut(df[f1],5,retbins=True,labels=False,duplicates='drop')
+        df['binf1']=bks_f1[0]
+    else:
+        df['binf1']=df[f1]     
+    
+    if df[f2].nunique()>20:
+        bks_f2=pd.qcut(df[f2],5,retbins=True,labels=False,duplicates='drop')
+        df['binf2']=bks_f2[0]
+    else:
+        df['binf2']=df[f2]       
+        
+
+    df_tmp=df.groupby(['bin','binf1','binf2']).apply(weighted_stats).unstack(-1).reset_index()
+    if df['x'].nunique()>20:
+        df_tmp['bin']=bks[1][pd.factorize(df_tmp['bin'])[0]]
+        
+    if df[f1].nunique()>20:
+        df_tmp['binf1']=bks_f1[1][pd.factorize(df_tmp['binf1'])[0]]
+    if df[f2].nunique()>20:
+        df_tmp['binf2']=bks_f2[1][pd.factorize(df_tmp['binf2'])[0]]
+
+    df_tmp['x']=df_tmp['bin']
+    df_tmp[f1]=df_tmp['binf1']
+    df_tmp[f2]=df_tmp['binf2']
+
+
+
+    df_tmp['x'] = df_tmp['x'].astype('category')
+    df_tmp[f1] = df_tmp[f1].astype('category')
+    df_tmp[f2] = df_tmp[f2].astype('category')
+
+    df_tmp['ymin']=df_tmp['y']-df_tmp['sd']/np.log(df_tmp['n'])
+    df_tmp['ymax']=df_tmp['y']+df_tmp['sd']/np.log(df_tmp['n'])
+    
+    if(toplot):
+        if (y_name==""):
+            #p=ggplot(df_tmp,aes(x='x',y='n'))+xlab(x_lab)+ylab(weight_name)+theme_classic()
+            p=ggplot(df_tmp,aes(x='x',y='n'))+theme_classic()
+            if(weight_name=="NoOfTransactions"):
+                p=p+geom_col(aes(x='x',y='n'),color='white')
+            else:
+                p=p+geom_col(aes(x='x',y='n',fill='wgt'),color='white')
+                p=p+guides(fill=guide_colorbar(title=weight_name))
+                p=p+scale_fill_gradient(low = "#132B43",high = "#56B1F7")
+            if df_tmp['x'].nunique()<=20:            
+                p=p+coord_flip()
+            if((f1 not in "All") | (f2 not in "Full")):
+                p=p+facet_grid((f2,f1),labeller = label_both)
+        else:
+            if ((plotmode=="detailed") | (df['x'].nunique()<=20)):      
+
+                p=ggplot(df_tmp,aes(x='x',y='y'))
+                p=p+xlab(x_lab)+ylab(y_lab)
+                p=p+geom_crossbar(aes(ymin='ymin',ymax='ymax',fill='wgt'),color='black')
+                p=p+guides(fill=guide_colorbar(title=weight_name))
+                p=p+scale_fill_gradient(low = "#132B43",high = "#56B1F7")
+
+                if df['x'].nunique()>20:
+                    if((f1 not in "All") | (f2 not in "Full")):
+                        p=p+facet_grid((f2,f1),labeller = label_both)+theme_bw()
+                    p=p+scale_y_discrete(breaks=bks[1][::(df_tmp[f1].nunique()+1)])
+                else:
+                    if((f1 not in "All") | (f2 not in "Full")):
+                        p=p+facet_grid((f2,f1),labeller = label_both)+theme_bw()
+                    p=p+coord_flip()
+            else:
+                p=ggplot(df_tmp, aes('x', 'y', group=f1, color=f1,fill='wgt'))
+                p=p+xlab(x_lab)+ylab(y_lab)
+                p=p+guides(fill=guide_colorbar(title=weight_name))
+                p=p+scale_fill_gradient(low = "#132B43",high = "#56B1F7")
+                p=p + geom_line()+facet_wrap(f2) + theme_classic()
+
+        return(df_tmp,p)
+    else:
+        return(df_tmp)
+    
+def eda(x_name
+        ,data
+        ,y_name=""
+        ,nbins=20
+        ,equal_bins=True
+        ,weight_name="NoOfTransactions"
+        ,f1="All"
+        ,f2="Full"
+        ,plotmode="detailed"
+        ,toplot=True
+        ,winsorized_x=False
+        ,floor_pct=.005
+        ,cap_pct=.995
+        ,flip_coord=True):
+    """
+
+this function is used to create cross bar showing relationship of y v/s x through mean(white bar) and std/ln(obs) bands
+Moreover , the cross bars are filled with shades as per the weights. User has an option to show facet grids through maximum
+two different categorical variables
+
+    """
+
+
+   
+    df = pd.DataFrame(columns=['x','y','w',f1,f2], index=range(DF.shape[0]))
+    df['x'] = data[x_name].round(2) if data[x_name].dtype=='float' else data[x_name]
+    
+    if(winsorized_x) & (data[x_name].dtype in ['int','float']):
+        percentiles=df['x'].quantile([floor_pct,cap_pct]).values
+        df['x'][df['x'] <= percentiles[0]] = percentiles[0]
+        df['x'][df['x'] >= percentiles[1]] = percentiles[1]
+    
+    if y_name=="":
+        df['y']=1
+        equal_bins=False
+    else:
+        df['y'] = data[y_name].round(2) if data[y_name].dtype=='float' else data[y_name]
+    
+
+    df['w']=1 if weight_name=="NoOfTransactions" else data[weight_name].round(2)
+    df['w']=df['w']/df['w'].sum()
+    
+    if f1=="All":
+        df[f1]="All"
+    else:
+        df[f1] = data[f1].round(2) if data[f1].dtype=='float' else data[f1]
+        
+    if f2=="Full":
+        df[f2]="All"
+    else:
+        df[f2] = data[f2].round(2) if data[f2].dtype=='float' else data[f2]
+        
+    x_lab=x_name
+    y_lab= "Average "+y_name if weight_name=="NoOfTransactions" else "Weighted Average "+y_name
+    
+    if ((df['x'].nunique()>20) & (df['x'].dtype in ('int','float'))):
+        if equal_bins: 
+            bks=pd.qcut(df['x'],nbins,retbins=True,labels=False,duplicates='drop')
+            df['bin']=bks[0]
+        else:
+            bks=pd.cut(df['x'],pretty(df['x'],nbins),labels=False, retbins=True,right=False, duplicates='drop')
+            df['bin']=bks[0]
+    else:
+        df['bin']=df['x']
+        
+    if df[f1].nunique()>20:
+        bks_f1=pd.qcut(df[f1],5,retbins=True,labels=False,duplicates='drop')
+        df['binf1']=bks_f1[0]
+    else:
+        df['binf1']=df[f1]     
+    
+    if df[f2].nunique()>20:
+        bks_f2=pd.qcut(df[f2],5,retbins=True,labels=False,duplicates='drop')
+        df['binf2']=bks_f2[0]
+    else:
+        df['binf2']=df[f2]       
+        
+
+    df_tmp=df.groupby(['bin','binf1','binf2']).apply(weighted_stats).unstack(-1).reset_index()
+    if ((df['x'].nunique()>20) & (df['x'].dtype in ('int','float'))):
+        df_tmp['bin']=bks[1][pd.factorize(df_tmp['bin'])[0]]
+        
+    if df[f1].nunique()>20:
+        df_tmp['binf1']=bks_f1[1][pd.factorize(df_tmp['binf1'])[0]]
+    if df[f2].nunique()>20:
+        df_tmp['binf2']=bks_f2[1][pd.factorize(df_tmp['binf2'])[0]]
+
+    df_tmp['x']=df_tmp['bin']
+    df_tmp[f1]=df_tmp['binf1']
+    df_tmp[f2]=df_tmp['binf2']
+
+
+
+    df_tmp['x'] = df_tmp['x'].astype('category')
+    df_tmp[f1] = df_tmp[f1].astype('category')
+    df_tmp[f2] = df_tmp[f2].astype('category')
+
+    df_tmp['ymin']=df_tmp['y']-df_tmp['sd']/np.log(df_tmp['n'])
+    df_tmp['ymax']=df_tmp['y']+df_tmp['sd']/np.log(df_tmp['n'])
+    
+    #df_tmp['ymax']=df_tmp['y']+df_tmp['sd']/np.log(df_tmp['n'])
+    
+    df_tmp['woe']=np.log((df_tmp['sum_event']/df_tmp['sum_event'].sum())/(df_tmp['sum_nonevent']/df_tmp['sum_nonevent'].sum()))
+    df_tmp['iv']=df_tmp['sum_event']/df_tmp['sum_event'].sum()-df_tmp['sum_nonevent']/df_tmp['sum_nonevent'].sum()
+    df_tmp['iv']=df_tmp['iv']*df_tmp['woe']
+
+    
+    if(toplot):
+        if (y_name==""):
+            #p=ggplot(df_tmp,aes(x='x',y='n'))+xlab(x_lab)+ylab(weight_name)+theme_classic()
+            p=ggplot(df_tmp,aes(x='x',y='n'))+theme_classic()
+            if(weight_name=="NoOfTransactions"):
+                p=p+geom_col(aes(x='x',y='n'),color='white')
+            else:
+                p=p+geom_col(aes(x='x',y='n',fill='wgt'),color='white')
+                p=p+guides(fill=guide_colorbar(title=weight_name))
+                p=p+scale_fill_gradient(low = "#132B43",high = "#56B1F7")
+            if df_tmp['x'].nunique()<=20:            
+                if(flip_coord):
+                        p=p+coord_flip()
+            if((f1 not in "All") | (f2 not in "Full")):
+                p=p+facet_grid((f2,f1),labeller = label_both)
+            if ((df['x'].nunique()>20) & (df['x'].dtype in ('int','float'))):
+                p=p+scale_x_discrete(breaks=bks[1][::(df_tmp[f1].nunique()+1)])
+                
+        else:
+            if ((plotmode=="detailed") | (df['x'].nunique()<=20)):      
+
+                p=ggplot(df_tmp,aes(x='x',y='y'))
+                p=p+xlab(x_lab)+ylab(y_lab)
+                p=p+geom_crossbar(aes(ymin='ymin',ymax='ymax',fill='wgt'),color='black')
+                p=p+guides(fill=guide_colorbar(title=weight_name))
+                p=p+scale_fill_gradient(low = "#132B43",high = "#56B1F7")
+
+                if ((df['x'].nunique()>20) & (df['x'].dtype in ('int','float'))):
+                    if((f1 not in "All") | (f2 not in "Full")):
+                        p=p+facet_grid((f2,f1),labeller = label_both)+theme_bw()
+                        p=p+scale_x_discrete(breaks=bks[1][::(df_tmp[f1].nunique()+1)])
+                else:
+                    if((f1 not in "All") | (f2 not in "Full")):
+                        p=p+facet_grid((f2,f1),labeller = label_both)+theme_bw()
+                    if(flip_coord):
+                        p=p+coord_flip()
+            else:
+                p=ggplot(df_tmp, aes('x', 'y', group=f1, color=f1,fill='wgt'))
+                p=p+xlab(x_lab)+ylab(y_lab)
+                p=p+guides(fill=guide_colorbar(title=weight_name))
+                p=p+scale_fill_gradient(low = "#132B43",high = "#56B1F7")
+                p=p + geom_line()+facet_wrap(f2) + theme_classic()
+        #print(df_tmp['iv'].sum())
+        return(df_tmp,p,df_tmp['iv'].sum())
+    else:
+        return(df_tmp)
+        
+#Step 0.1 - Function defined to calculate Gini and other performance matrics
+depVar = 'depvar'
+keyVar = 'key'
+wgtVar = 'wgt'
+def gini(inputDF,actualCol,scoreCol,lbl,wgtCol=None):
+    if wgtCol is None:
+        wgtCol=1
+    binCount = 10
+    binSize = np.ceil(inputDF.shape[0]/binCount)
+    inputDF["wgtScore"] = inputDF[wgtVar]*inputDF[scoreCol]
+    inputDF["wgtActual"] = inputDF[wgtVar]*inputDF[actualCol]
+    
+    inputDF = inputDF.sort_values(by = [actualCol],ascending = False).reset_index(drop=True)
+    inputDF["actcumwgt"] = inputDF[wgtVar].cumsum()
+    inputDF["actualBin"] = np.floor((inputDF.actcumwgt)/binSize)+1
+    
+    inputDF = inputDF.sort_values(by = [scoreCol],ascending = False).reset_index(drop=True)
+    inputDF["scrcumwgt"] = inputDF[wgtVar].cumsum()
+    inputDF["scoreBin"] = np.floor((inputDF.scrcumwgt)/binSize)+1
+    
+    mergedDF = inputDF[wgtCol].groupby(inputDF["actualBin"],as_index=True).sum().to_frame("count")
+    
+    mergedDF["bestMean"] = inputDF["wgtActual"].groupby(inputDF["actualBin"],as_index=True).sum()/mergedDF["count"]
+    mergedDF["respMean"] = inputDF["wgtActual"].groupby(inputDF["scoreBin"],as_index=True).sum()/mergedDF["count"]
+    mergedDF["predMean"] = inputDF["wgtScore"].groupby(inputDF["scoreBin"],as_index=True).sum()/mergedDF["count"]
+    
+    mergedDF["bestPct"] = mergedDF["bestMean"]/mergedDF["bestMean"].sum()
+    mergedDF["respPct"] = mergedDF["respMean"]/mergedDF["respMean"].sum()  
+    
+    mergedDF["bestCumPct"] = mergedDF["bestPct"].cumsum()
+    mergedDF["respCumPct"] = mergedDF["respPct"].cumsum()
+    mergedDF["randomLine"] = mergedDF.index.get_values()/binCount
+    
+    mergedDF["SumAct"] = inputDF["wgtActual"].groupby(inputDF["scoreBin"],as_index=True).sum()
+    mergedDF["SumScr"] = inputDF["wgtScore"].groupby(inputDF["scoreBin"],as_index=True).sum() 
+    
+    mergedDF.to_csv(lbl+".csv")
+    
+    respAUC = np.sum(mergedDF["respCumPct"] - mergedDF["randomLine"])/binCount
+    bestAUC = np.sum(mergedDF["bestCumPct"] - mergedDF["randomLine"])/binCount
+    gini = respAUC/bestAUC
+    
+    accuracy = 1 - np.abs(mergedDF["predMean"] - mergedDF["respMean"]).sum()/mergedDF["respMean"].sum()
+    return ["{0:0.2f}%".format(gini*100),"{0:0.2f}%".format(accuracy*100),"{0:0.2f}%".format(mergedDF['respPct'].values[0]*100)]
+    
+    
+    
+    #Step 0.2 - Wrapper around model creation and scoring
+
+def modelfit(alg,dtrain,dtest,dval,predictors, performCV=False, printFeatureImportance=True, cv_folds=2,depvar='depvar'):
+    #Fit the algorithm on the data
+    alg.fit(dtrain[predictors], dtrain[depvar])
+        
+    #Predict training set:
+    dtrain_predictions = alg.predict(dtrain[predictors])
+    dtrain_predprob = alg.predict_proba(dtrain[predictors])[:,1]
+    dtest_predprob = alg.predict_proba(dtest[predictors])[:,1]
+    dval_predprob = alg.predict_proba(dval[predictors])[:,1]
+
+
+    #Perform cross-validation:
+    if performCV:
+        cv_score = cross_validation.cross_val_score(alg, dtrain[predictors], dtrain['depvar'], cv=cv_folds, scoring='roc_auc')
+        #cv_score = cross_val_score(alg, dtrain[predictors], dtrain['depvar'], cv=cv_folds, scoring='roc_auc')
+    
+        #Print model report:
+        print("\nModel Report")
+        print("Accuracy : %.4g" % metrics.accuracy_score(dtrain['depvar'].values, dtrain_predictions))
+        print("AUC Score (Train): %f" % metrics.roc_auc_score(dtrain['depvar'], dtrain_predprob))
+
+    if performCV:
+        print("CV Score : Mean - %.7g | Std - %.7g | Min - %.7g | Max - %.7g" % (np.mean(cv_score),np.std(cv_score),np.min(cv_score),np.max(cv_score)))
+        
+    #Print Feature Importance:
+    if printFeatureImportance:
+        feat_imp = pd.Series(alg.feature_importances_, predictors)
+        feat_imp1=pd.DataFrame(feat_imp)
+        #feat_imp1.to_csv("feat_imp1.csv")
+    #feat_imp.plot(kind='bar', title='Feature Importances')
+    #plt.ylabel('Feature Importance Score'
+
+    np.column_stack((dtest[depvar].values,dtest_predprob))
+    return(pd.DataFrame(np.column_stack((dtrain[depvar].values,dtrain_predprob)),columns=['actual','predicted']),pd.DataFrame(np.column_stack((dtest[depvar].values,dtest_predprob)),columns=['actual','predicted']),pd.DataFrame(np.column_stack((dval[depvar].values,dval_predprob)),columns=['actual','predicted']),feat_imp1)
