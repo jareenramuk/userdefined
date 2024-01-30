@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Directory containing the .xls files
+input_dir="your_directory_path_here"
+
+# Output file name
+output_file="output.xlsx"
+
+# Initialize the output file
+touch "$output_file"
+
+# Loop through each .xls file in the directory
+for file in "$input_dir"/*.xls; do
+    if [ -f "$file" ]; then
+        # Extract the substring before "-"
+        file_name=$(basename "$file")
+        sheet_name="star_$(echo "$file_name" | awk -F'-' '{print $1}')"
+
+        # Convert .xls to .csv
+        xls2csv "$file" | csv2xlsx -s 1 -o "${file}.xlsx" &>/dev/null
+
+        # Rename the sheet
+        ssconvert "${file}.xlsx" "${file}.xlsx" --export-sheet="$sheet_name"
+
+        # Append the sheet to the output file
+        ssconvert "${file}.xlsx" "$output_file" "$output_file"
+
+        # Remove the temporary .xlsx file
+        rm "${file}.xlsx"
+    fi
+done
